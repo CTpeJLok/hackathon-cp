@@ -7,108 +7,114 @@ from docx import Document
 import pdfplumber
 
 
+# Базовый класс для обработки файлов
 class File:
     def __init__(self, file_name: str, file_bytes: bytes):
-        self.file_name = file_name
-        self.file_bytes = io.BytesIO(file_bytes)
+        self.file_name = file_name  # Имя файла
+        self.file_bytes = io.BytesIO(file_bytes)  # Байтовый поток с содержимым файла
 
     def get_table(self):
+        # Возвращаем байтовый поток (может быть переопределено в подклассах)
         return self.file_bytes
 
 
+# Класс для работы с файлами формата .xlsx
 class XLSXFile(File):
     def __init__(self, file_name: str, file_bytes: bytes):
-        super().__init__(file_name, file_bytes)
+        super().__init__(file_name, file_bytes)  # Инициализация родительского класса
 
     def get_table(self):
-        # Чтение файла Excel
+        # Чтение файла Excel формата .xlsx
         wb_x: openpyxl.Workbook = openpyxl.load_workbook(
             self.file_bytes, data_only=True
         )
-        sheet_x = wb_x.active
+        sheet_x = wb_x.active  # Получаем активный лист
         if not sheet_x:
-            return []
+            return []  # Возвращаем пустой список, если листа нет
 
         table = []
         for row in sheet_x.iter_rows(values_only=True):
-            table.append([])
-            for cell in row:
-                table[-1].append(cell)
+            table.append(list(row))  # Добавляем строки в таблицу
 
-        return table
+        return table  # Возвращаем таблицу
 
 
+# Класс для работы с файлами формата .xls
 class XLSFile(File):
     def __init__(self, file_name: str, file_bytes: bytes):
         super().__init__(file_name, file_bytes)
 
     def get_table(self):
+        # Используем временный файл для хранения содержимого .xls
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xls") as temp_file:
             temp_file.write(self.file_bytes.getbuffer())
-            temp_file_path = temp_file.name
+            temp_file_path = temp_file.name  # Получаем путь к временному файлу
 
             # Чтение файла Excel формата .xls
             wb: xlrd.book.Book = xlrd.open_workbook(temp_file_path)
-            sheet: xlrd.sheet.Sheet = wb.sheet_by_index(0)
+            sheet: xlrd.sheet.Sheet = wb.sheet_by_index(0)  # Получаем первый лист
 
             table = []
             for r in range(sheet.nrows):
-                table.append([])
-
+                row_data = []  # Список для строки
                 for c in range(sheet.ncols):
-                    table[-1].append(sheet.cell_value(r, c))
+                    row_data.append(sheet.cell_value(r, c))  # Добавляем ячейки в строку
+                table.append(row_data)  # Добавляем строку в таблицу
 
-            return table
+            return table  # Возвращаем таблицу
 
 
+# Класс для работы с файлами формата .docx
 class DOCXFile(File):
     def __init__(self, file_name: str, file_bytes: bytes):
         super().__init__(file_name, file_bytes)
 
     def get_table(self):
         # Чтение таблицы из файла формата .docx
-        doc = Document(self.file_bytes)
+        doc = Document(self.file_bytes)  # Открываем документ
 
         table = []
 
-        doc_table = doc.tables[:1]
+        doc_table = doc.tables[:1]  # Получаем первую таблицу
         if not doc_table:
-            return []
+            return []  # Возвращаем пустой список, если таблицы нет
 
-        doc_table = doc.tables[0]
+        doc_table = doc.tables[0]  # Сохраняем первую таблицу
         for r in doc_table.rows:
-            table.append([])
+            row_data = []  # Список для строки
             for c in r.cells:
-                table[-1].append(c.text)
-            table[-1].append(r.cells[0].text)
+                row_data.append(c.text)  # Добавляем текст ячеек в строку
+            table.append(row_data)  # Добавляем строку в таблицу
 
-        return table
+        return table  # Возвращаем таблицу
 
 
+# Класс для работы с файлами формата .pdf
 class PDFFile(File):
     def __init__(self, file_name: str, file_bytes: bytes):
         super().__init__(file_name, file_bytes)
 
     def get_table(self):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xls") as temp_file:
+        # Используем временный файл для хранения содержимого .pdf
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_file.write(self.file_bytes.getbuffer())
-            temp_file_path = temp_file.name
+            temp_file_path = temp_file.name  # Получаем путь к временному файлу
 
             # Чтение таблицы из файла формата .pdf
             with pdfplumber.open(temp_file_path) as pdf:
-                t = []
+                all_tables = []  # Список для всех таблиц
                 for page in pdf.pages:
-                    all_tables = page.extract_table()
-                    if all_tables:
-                        t.append(all_tables)
+                    table = page.extract_table()  # Извлекаем таблицу из страницы
+                    if table:
+                        all_tables.append(
+                            table
+                        )  # Добавляем таблицу, если она существует
 
-                tables = []
+                tables = []  # Список для окончательных таблиц
 
-                for t in t:
+                for t in all_tables:
                     for r in t:
                         if r:
-                            tables.append([])
-                            for cell in r:
-                                tables[-1].append(cell)
+                            tables.append(list(r))  # Добавляем строки в таблицу
 
-                return tables
+                return tables  # Возвращаем таблицы
