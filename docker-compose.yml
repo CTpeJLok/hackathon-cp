@@ -2,6 +2,7 @@ services:
   web:
     build: ./web
     command: python main.py
+    restart: always
     ports:
-      - "8080:8080"
+      - "30001:8080"
     
