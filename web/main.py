@@ -176,7 +176,7 @@ async def post_handle(request):
             text=render_template(
                 "table.html",
                 rows=rows,
-                region=REGION_CODE[region],
+                region=REGION_CODE.get(region),
                 period=period,
                 count=merged_results.shape[0],
             ),
