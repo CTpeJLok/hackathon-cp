@@ -9,20 +9,33 @@
     <link
       href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
       rel="stylesheet" />
+    <style>
+      table {
+        width: 100%;
+        table-layout: fixed;
+        display: table !important;
+      }
+
+      th,
+      td {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    </style>
   </head>
   <body>
     <div class="container mt-5">
       <h1 class="text-center">Данные из файла Excel</h1>
-      <table class="table table-bordered mt-4 table-responsive">
-        <thead class="thead-light">
-          <tr>
-            <th>Значение</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{ rows }}
-        </tbody>
-      </table>
+
+      {% if region %}
+      <h4 class="text-center">Регион: {{ region }}</h4>
+      {% endif %} {% if period %}
+      <h4 class="text-center">Количество месяцев: {{ period }}</h4>
+      {% endif %} {% if count %}
+      <h4 class="text-center">Количество клиентов: {{ count }}</h4>
+      {% endif %}
+
       <div class="text-center">
         <a
           href="/"
@@ -30,6 +43,11 @@
           >Загрузить другой файл</a
         >
       </div>
+      <table class="table table-bordered mt-4 table-responsive">
+        <tbody>
+          {{ rows }}
+        </tbody>
+      </table>
     </div>
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>

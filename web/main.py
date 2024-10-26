@@ -1,14 +1,21 @@
 from aiohttp import web
 import os
 from jinja2 import Template
+from datetime import datetime
 
 from tensorflow.keras.models import load_model
 import numpy as np
 import pandas as pd
 
 from File import File, XLSFile, XLSXFile, DOCXFile, PDFFile
+from Regions import get_region_df, REGION_CODE
 
-model = load_model("/home/andrey/Документы/code/hackathon-cp/web/models/month_1.h5")
+model_1 = load_model("./models/month_1.h5")
+model_2 = load_model("./models/month_2.h5")
+model_3 = load_model("./models/month_3.h5")
+model_4 = load_model("./models/month_4.h5")
+model_5 = load_model("./models/month_5.h5")
+model_6 = load_model("./models/month_6.h5")
 
 EXTS = {
     "xlsx": XLSXFile,
@@ -17,14 +24,27 @@ EXTS = {
     "pdf": PDFFile,
 }
 
+MODELS = {
+    "1": model_1,
+    "2": model_2,
+    "3": model_3,
+    "4": model_4,
+    "5": model_5,
+    "6": model_6,
+}
 
-def preprocess(volumes: pd.DataFrame, prediction_period=1):
+
+def preprocess(volumes: pd.DataFrame, ids=None, prediction_period=1):
     # 1. Загрузка и предобработка данных
     volumes = volumes.fillna("")
+
     new_headers = volumes.iloc[0].astype(str) + " " + volumes.iloc[1].astype(str)
     volumes.columns = new_headers
     volumes = volumes.drop([0, 1]).reset_index(drop=True)
     volumes.columns = volumes.columns.str.strip()
+
+    if ids:
+        volumes = volumes[volumes["ID"].isin(ids)]
 
     summed_volumes = volumes.groupby("ID").sum().iloc[:, 4:].reset_index()
     freight_columns = [
@@ -90,6 +110,9 @@ async def handle(request):
 async def post_handle(request):
     reader = await request.post()
     file = reader.get("file")
+    region = reader.get("region")
+    period = reader.get("period")
+    print(region, period)
 
     if file:
         file_bytes = file.file.read()
@@ -107,20 +130,21 @@ async def post_handle(request):
 
         table = file_handler.get_table()
 
-        for row in table[:5]:
-            print(f"\033[32m{row}\033[0m")
-            print()
+        # while len(table) > 0 and table[0][0] != "ID":
+        #     table = table[1:]
 
         df = pd.DataFrame(table[1:])
 
-        X, volumes_sorted, client_ids = preprocess(df)
+        ids = None
+        if region:
+            region_df = get_region_df(region)
+            ids = list(set(region_df["ID"].tolist()))
 
-        y = model.predict(X)
-        print(y[:10])
-        # k = 0
-        # for r in table[3:9]:
-        #     print(r[0], y[k])
-        #     k += 1
+        X, volumes_sorted, client_ids = preprocess(
+            df, ids=ids, prediction_period=int(period) if period else 1
+        )
+
+        y = MODELS.get(period, "1").predict(X)
 
         # Сопоставляем тестовые ID с вероятностями и добавляем данные из volumes_sorted
         test_results = pd.DataFrame(
@@ -141,17 +165,23 @@ async def post_handle(request):
             by="Churn_Probability", ascending=False
         )
 
-        merged_results.to_excel("result.xlsx", index=False)
+        merged_results.to_excel(
+            f"result_{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.xlsx", index=False
+        )
 
-        print(merged_results.head())
-
-        # rows = ""
-        # for row in table:
-        #     rows += "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
-
-        rows = ""
+        rows = "<tr><th>Клиент</th><th>Вероятность</th></tr>"
+        result = merged_results[["Client_ID", "Churn_Probability"]].values.tolist()
+        for i in result:
+            rows += f"<tr><td>{i[0]}</td><td>{i[1]}</td></tr>"
         return web.Response(
-            text=render_template("table.html", rows=rows), content_type="text/html"
+            text=render_template(
+                "table.html",
+                rows=rows,
+                region=REGION_CODE[region],
+                period=period,
+                count=merged_results.shape[0],
+            ),
+            content_type="text/html",
         )
 
     return web.Response(

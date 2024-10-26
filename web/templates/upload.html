@@ -18,13 +18,50 @@
         enctype="multipart/form-data"
         class="mt-4">
         <div class="form-group">
+          <label for="fileInput">Выберите файл:</label>
           <input
             type="file"
             class="form-control-file"
+            id="fileInput"
             name="file"
             accept=".xlsx,.xls,.docx,.pdf"
             required />
         </div>
+
+        <div class="form-row mb-4">
+          <div class="col">
+            <label for="regionSelect">Выберите регион:</label>
+            <select
+              id="regionSelect"
+              name="region"
+              class="form-control">
+              <option value=""></option>
+              <option value="vo">Владимирская область</option>
+              <option value="ko">Кировская область</option>
+              <option value="no">Нижегородская область</option>
+              <option value="rme">Республика Марий Эл</option>
+              <option value="rm">Республика Мордовия</option>
+              <option value="rt">Республика Татарстан</option>
+              <option value="ru">Республика Удмуртия</option>
+              <option value="rch">Республика Чувашия</option>
+            </select>
+          </div>
+          <div class="col">
+            <label for="monthsSelect">Количество месяцев:</label>
+            <select
+              id="monthsSelect"
+              name="period"
+              class="form-control">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </div>
+        </div>
+
         <button
           type="submit"
           class="btn btn-primary btn-block">
