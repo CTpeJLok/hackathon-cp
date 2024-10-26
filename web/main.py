@@ -1,12 +1,83 @@
 from aiohttp import web
-import openpyxl
-import xlrd
 import os
-import io
 from jinja2 import Template
-import tempfile
-from docx import Document
-import pdfplumber
+
+from tensorflow.keras.models import load_model
+import numpy as np
+import pandas as pd
+
+from File import File, XLSFile, XLSXFile, DOCXFile, PDFFile
+
+model = load_model("/home/andrey/Документы/code/hackathon-cp/web/models/month_1.h5")
+
+EXTS = {
+    "xlsx": XLSXFile,
+    "xls": XLSFile,
+    "docx": DOCXFile,
+    "pdf": PDFFile,
+}
+
+
+def preprocess(volumes: pd.DataFrame, prediction_period=1):
+    # 1. Загрузка и предобработка данных
+    volumes = volumes.fillna("")
+    new_headers = volumes.iloc[0].astype(str) + " " + volumes.iloc[1].astype(str)
+    volumes.columns = new_headers
+    volumes = volumes.drop([0, 1]).reset_index(drop=True)
+    volumes.columns = volumes.columns.str.strip()
+
+    summed_volumes = volumes.groupby("ID").sum().iloc[:, 4:].reset_index()
+    freight_columns = [
+        col for col in summed_volumes.columns if "Провозная плата" in col
+    ]
+    tonnage_columns = [
+        col for col in summed_volumes.columns if "Объем перевозок" in col
+    ]
+
+    sorted_freight_columns = sorted(
+        freight_columns, key=lambda x: pd.to_datetime(x.split()[0], format="%Y/%m")
+    )
+    sorted_tonnage_columns = sorted(
+        tonnage_columns, key=lambda x: pd.to_datetime(x.split()[0], format="%Y/%m")
+    )
+    sorted_columns = ["ID"] + sorted_freight_columns + sorted_tonnage_columns
+    volumes_sorted = summed_volumes[sorted_columns]
+
+    # 2. Создание признака 'Отток' (при отсутствии активности 12 месяцев)
+    volumes_sorted["Отток"] = (
+        volumes_sorted.filter(like="Провозная плата")
+        .T.rolling(window=12)
+        .sum()
+        .T.min(axis=1)
+        == 0
+    ) | (
+        volumes_sorted.filter(like="Объем перевозок(тн)")
+        .T.rolling(window=12)
+        .sum()
+        .T.min(axis=1)
+        == 0
+    )
+
+    # 3. Подготовка данных для временного ряда
+    freight_cols = volumes_sorted.filter(like="Провозная плата").columns
+    volume_cols = volumes_sorted.filter(like="Объем перевозок(тн)").columns
+    sequence_length = 12
+
+    sequences = []
+    client_ids = []
+
+    for _, row in volumes_sorted.iterrows():
+        freight = row[freight_cols].values.astype("float32")
+        v = row[volume_cols].values.astype("float32")
+        data = np.stack([freight, v], axis=1)
+
+        if len(data) >= sequence_length + prediction_period:
+            sequences.append(data[:sequence_length])
+            client_ids.append(row["ID"])
+
+    X = np.array(sequences, dtype="float32")
+
+    return X, volumes_sorted, client_ids
 
 
 async def handle(request):
@@ -21,77 +92,64 @@ async def post_handle(request):
     file = reader.get("file")
 
     if file:
-        file_bytes = io.BytesIO(file.file.read())
+        file_bytes = file.file.read()
         file_name = file.filename
 
-        rows = ""
+        file_class: type[File] | None = EXTS.get(file_name.split(".")[-1])
 
-        if file_name.endswith(".xlsx"):
-            # Чтение файла Excel
-            wb_x: openpyxl.Workbook = openpyxl.load_workbook(file_bytes, data_only=True)
-            sheet_x = wb_x.active
-
-            if not sheet_x:
-                return web.Response(
-                    text=render_template("upload.html", table=""),
-                    content_type="text/html",
-                )
-
-            # Генерация строк для HTML-таблицы
-            rows = "".join(
-                "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
-                for row in sheet_x.iter_rows(values_only=True)
+        if not file_class:
+            return web.Response(
+                text=render_template("upload.html", table=""),
+                content_type="text/html",
             )
-        elif file_name.endswith(".xls"):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xls") as temp_file:
-                temp_file.write(file_bytes.getbuffer())
-                temp_file_path = temp_file.name
 
-                # Чтение файла Excel формата .xls
-                wb: xlrd.book.Book = xlrd.open_workbook(temp_file_path)
-                sheet: xlrd.sheet.Sheet = wb.sheet_by_index(0)
+        file_handler = file_class(file_name, file_bytes)
 
-                rows = "".join(
-                    "<tr>"
-                    + "".join(
-                        f"<td>{sheet.cell_value(r, c)}</td>" for c in range(sheet.ncols)
-                    )
-                    + "</tr>"
-                    for r in range(sheet.nrows)
-                )
-        elif file_name.endswith(".docx"):
-            # Чтение таблицы из файла формата .docx
-            doc = Document(file_bytes)
-            for table in doc.tables[:1]:
-                for row in table.rows:
-                    rows += (
-                        "<tr>"
-                        + "".join(f"<td>{cell.text}</td>" for cell in row.cells)
-                        + "</tr>"
-                    )
-        elif file_name.endswith(".pdf"):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xls") as temp_file:
-                temp_file.write(file_bytes.getbuffer())
-                temp_file_path = temp_file.name
+        table = file_handler.get_table()
 
-                # Чтение таблицы из файла формата .pdf
-                with pdfplumber.open(temp_file_path) as pdf:
-                    tables = []
-                    for page in pdf.pages:
-                        t = page.extract_table()
-                        if t:
-                            tables.append(t)
+        for row in table[:5]:
+            print(f"\033[32m{row}\033[0m")
+            print()
 
-                    for table in tables[:1]:
-                        print(table)
-                        for row in table:
-                            if row:
-                                rows += (
-                                    "<tr>"
-                                    + "".join(f"<td>{cell}</td>" for cell in row)
-                                    + "</tr>"
-                                )
+        df = pd.DataFrame(table[1:])
 
+        X, volumes_sorted, client_ids = preprocess(df)
+
+        y = model.predict(X)
+        print(y[:10])
+        # k = 0
+        # for r in table[3:9]:
+        #     print(r[0], y[k])
+        #     k += 1
+
+        # Сопоставляем тестовые ID с вероятностями и добавляем данные из volumes_sorted
+        test_results = pd.DataFrame(
+            {"Client_ID": client_ids, "Churn_Probability": y.flatten()}
+        )
+
+        # Объединение результатов с исходными данными volumes_sorted на основе Client_ID
+        merged_results = test_results.merge(
+            volumes_sorted, left_on="Client_ID", right_on="ID"
+        )
+
+        # Удаление столбцов 'Отток' и дублирующегося 'ID', перемещение 'Churn_Probability' вправо
+        merged_results.drop(columns=["Отток", "ID"], inplace=True)
+        merged_results["Churn_Probability"] = merged_results.pop("Churn_Probability")
+
+        # Сортировка по вероятности оттока
+        merged_results = merged_results.sort_values(
+            by="Churn_Probability", ascending=False
+        )
+
+        merged_results.to_excel("result.xlsx", index=False)
+
+        print(merged_results.head())
+
+        # rows = ""
+        # for row in table:
+        #     rows += "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+
+        rows = ""
         return web.Response(
             text=render_template("table.html", rows=rows), content_type="text/html"
         )
