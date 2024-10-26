@@ -1,0 +1,7 @@
+services:
+  web:
+    build: ./web
+    command: python main.py
+    ports:
+      - "8080:8080"
+    

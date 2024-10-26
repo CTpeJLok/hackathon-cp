@@ -112,7 +112,6 @@ async def post_handle(request):
     file = reader.get("file")
     region = reader.get("region")
     period = reader.get("period")
-    print(region, period)
 
     if file:
         file_bytes = file.file.read()
